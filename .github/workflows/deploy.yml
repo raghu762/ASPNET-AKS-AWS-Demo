@@ -12,14 +12,13 @@ jobs:
       AWS_REGION: us-east-1                 # Change if needed
       ECR_REPOSITORY: demoapp               # Your ECR repo name
       EKS_CLUSTER_NAME: my-eks-cluster      # Your EKS cluster name
-      IMAGE_TAG: latest
 
     steps:
       # 1️⃣ Checkout code
       - name: Checkout source
         uses: actions/checkout@v4
 
-      # 2️⃣ Set up .NET SDK (match your version — use 9.0 if your app targets .NET 9)
+      # 2️⃣ Set up .NET SDK (use same version as your app)
       - name: Set up .NET
         uses: actions/setup-dotnet@v4
         with:
@@ -32,7 +31,7 @@ jobs:
           dotnet restore
           dotnet publish -c Release -o out
 
-      # 4️⃣ Configure AWS credentials from GitHub Secrets
+      # 4️⃣ Configure AWS credentials
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -45,26 +44,29 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      # 6️⃣ Build, tag, and push Docker image to ECR
+      # 6️⃣ Build, tag, and push Docker image (force new build every time)
       - name: Build and Push Docker image
         working-directory: DemoApp
         run: |
-          IMAGE_URI=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
-          docker build -t $IMAGE_URI .
+          IMAGE_TAG=${{ github.run_number }}               # unique tag each build
+          IMAGE_URI=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${IMAGE_TAG}
+          docker build --no-cache -t $IMAGE_URI .
           docker push $IMAGE_URI
           echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
 
-      # 7️⃣ Update kubeconfig for EKS (authentication step)
+      # 7️⃣ Update kubeconfig for EKS (connect kubectl to cluster)
       - name: Update kubeconfig for EKS
         run: |
           aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ env.EKS_CLUSTER_NAME }}
 
-      # 8️⃣ Deploy to EKS
+      # 8️⃣ Deploy to EKS (apply manifests + update image)
       - name: Deploy to EKS
         run: |
-          # Apply deployment and service manifests
           kubectl apply -f k8s/deployment.yaml
           kubectl apply -f k8s/service.yaml
 
-          # Optionally update image dynamically
-          kubectl set image deployment/demoapp-deployment demoapp=${{ env.IMAGE_URI }} || true
+          # Force pods to use new image tag
+          kubectl set image deployment/demoapp-deployment demoapp=${{ env.IMAGE_URI }}
+          
+          # Wait until rollout completes
+          kubectl rollout status deployment/demoapp-deployment
