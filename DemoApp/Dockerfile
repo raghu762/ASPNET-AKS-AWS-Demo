@@ -1,5 +1,5 @@
-# Use official .NET SDK image to build the app
-FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+# Use .NET 9 SDK for building
+FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /app
 
 # Copy csproj and restore dependencies
@@ -10,16 +10,12 @@ RUN dotnet restore
 COPY . ./
 RUN dotnet publish -c Release -o out
 
-# Use a smaller runtime image for production
-FROM mcr.microsoft.com/dotnet/aspnet:8.0
+# Use .NET 9 runtime for production
+FROM mcr.microsoft.com/dotnet/aspnet:9.0
 WORKDIR /app
 COPY --from=build /app/out .
 
-# Expose the default port for .NET web apps
 EXPOSE 8080
-
-# Set environment variables (optional)
 ENV ASPNETCORE_URLS=http://+:8080
 
-# Start the app
 ENTRYPOINT ["dotnet", "DemoApp.dll"]
